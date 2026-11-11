@@ -95,8 +95,27 @@ copy `pii-columns.example.json` to `pii-columns.json` next to your files:
 | `[ACCT_n]` | 10 to 16 digit numbers next to a bank or account word |
 | `[CARD_n]` | Card numbers that pass the Luhn check |
 
-Every value found anywhere in a batch is also masked wherever else it appears, and each distinctive
-part of a detected name (for example the given name on its own) is masked too.
+Every value found anywhere in a batch is also masked wherever else it appears.
+
+Name parts: after detection, each detected name gives its given-name words, and those are masked
+wherever they appear on their own in the same file or batch. `Puan Siti binti Demo ... once Siti
+confirms` becomes `Puan [NAME_1] ... once [NAME_1.2] confirms`. The part keeps the full name's number
+with a variant suffix, so the AI can tell it is the same person, and unmask puts back the exact word.
+The rules:
+
+- Honorifics are dropped, and so are bin/binti/bt/a/l/a/p/s/o/d/o/anak and everything after them
+  (the father's name is never masked on its own). The first Chinese surname is dropped too.
+- Prefixes such as Mohd, Nur or Siti count only when they are the whole given name
+  (`Siti binti Demo` gives `Siti`, `Siti Hajar binti Demo` gives `Hajar`).
+- A part needs at least 3 letters and a capital. It is matched whole-word and case-sensitively, as
+  written, in Title case or in capitals, never in lower case, and never inside another token.
+- A part that is also a common English or Malay word, a month or a place (April, Grace, Indah, Jaya,
+  Kuala) is not masked on its own. The stoplist is `PART_STOP` in `pii_mask/lists.py`.
+- A part shared by two different people in the batch is still masked, but gets its own token, so it
+  is not wrongly linked to either.
+
+A span that starts with an honorific or contains bin/binti/a/l/a/p is treated as a name, not an
+organisation, unless it also has a company word (Sdn Bhd, Enterprise, Klinik and so on).
 
 ## Measured on the fake test set
 
@@ -108,17 +127,20 @@ Recall (values fully removed), RTX 3070 8 GB, CUDA build of PyTorch:
 
 | Set | Default (2 models) | `--fast` (1 model) | Regex only |
 |---|---|---|---|
-| Main set: 9 files (csv, xlsx, 3 notes, 2 emails, docx, pdf), 961 labelled values | 961/961 | 961/961 | 948/961 (names 92.5%) |
-| Same, spreadsheet header rules switched off (detectors only) | 961/961 | 961/961 | 948/961 |
-| Holdout: different phrasing and harder cases, 5 random seeds, 140 values | 140/140 | 137/140 | 22/28 on one seed (names 60%) |
+| Main set: 11 files (csv, xlsx, 5 notes, 2 emails, docx, pdf), 969 labelled values | 969/969 | 969/969 | 964/969 (names 97.2%) |
+| Same, spreadsheet header rules switched off (detectors only) | 969/969 | not re-run | not re-run |
+| Holdout: different phrasing and harder cases, 5 random seeds, 140 values | 140/140 | 138/140 | 22/28 on one seed (names 60%) |
 
 Per type on the main set every type (IC, TIN, BRN, PHONE, EMAIL, ADDRESS, ORG, NAME, ACCT) is at
 100% with the default models. Every miss seen during testing was a lone first name inside a sentence.
+Token checks on the main set: an honorific name alone on a line gets a NAME token (not ORG), and a lone
+given name gets the full name's linked token (`[NAME_1.2]`).
 `--llm-check` lifted regex-only holdout recall from 22/28 to 27/28, but did not recover the lone-name
 misses left by `--fast`.
 
-Over-masking check: 11 non-personal control strings (invoice numbers, amounts, LHDN, a city).
-10 survive by default (a customer ID becomes a token); with `--llm-check` 9 survive.
+Over-masking check: 12 non-personal control strings (invoice numbers, amounts, LHDN, a city, and
+"April 2027" next to a person whose given name is April). 11 survive by default (a customer ID becomes
+a token). With `--llm-check`, 9 of the first 11 survived.
 
 Speed:
 
@@ -148,8 +170,12 @@ Round trip: unmasking restored every format exactly (`.txt` and `.md` byte for b
 
 - It is a filter, not a guarantee. Recall on real documents will be lower than on the fake set.
   Always look at the masked file before you send it.
-- Lone first names in sentences ("once Rosli confirms") are the weakest spot. The two-model default
-  and `--llm-check` help; `--fast` and `--no-gliner` miss more.
+- Lone first names that never appear in full in the same file or batch ("once Rosli confirms" with
+  no "Rosli bin ..." anywhere) are the weakest spot. The two-model default and `--llm-check` help;
+  `--fast` and `--no-gliner` miss more. When the full name is detected somewhere in the batch, the
+  lone given name is masked too (see "Name parts" above).
+- A given name that is also a common word or place (April, Grace, Indah, Jaya) is not masked on its
+  own, and neither is a bare prefix like Mohd or Siti when the given name has another word.
 - Names in all lowercase, nicknames, and names written without any Malaysian pattern can slip.
 - Not detected: old IC numbers (e.g. A1234567), passport numbers, vehicle plates, dates of birth on
   their own, salary figures, bank accounts without a nearby bank word, foreign phone numbers.

@@ -30,3 +30,45 @@ MY_STATES = [
     "Labuan", "W.P. Labuan", "Putrajaya", "W.P. Putrajaya", "Johor Darul Takzim",
     "Selangor Darul Ehsan", "Malaysia",
 ]
+
+# ---------------------------------------------------------------- name parts
+# Words that link a given name to a father's name (or an alias). Everything from the first one on is
+# the father's side and is never masked on its own: "Siti binti Demo" -> "Siti".
+NAME_CONNECTORS = {"bin", "binti", "bte", "bt", "bt.", "b.", "binte", "a/l", "a/p", "s/o", "d/o",
+                   "anak", "ak", "ak."}
+# Prefixes that identify nobody on their own ("Siti Hajar" is called "Hajar"). Kept only when they
+# are the whole given name, as in "Siti binti Demo".
+NAME_PREFIXES = {"mohd", "md", "muhammad", "muhamad", "mohamad", "mohammad", "mohamed", "mohammed",
+                 "nur", "nurul", "nor", "noor", "siti", "abdul", "abd", "ab", "wan", "nik", "che",
+                 "syed", "sharifah", "tengku", "tunku", "raja", "megat", "puteri", "awang", "dayang"}
+# A lone part is masked across the whole batch, so it must not be an everyday word or a place:
+# "April", "Grace", "Indah" or "Jaya" can be a given name and also appear in normal text.
+PART_STOP = {w.casefold() for w in [
+    # placeholders used in demo data
+    "Demo", "Contoh", "Sample", "Sampel", "Ujian", "Test",
+    # very common given-name words that identify nobody
+    "Kumar", "Devi",
+    # months and days
+    "January", "February", "March", "April", "May", "June", "July", "August", "September",
+    "October", "November", "December", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+    "Saturday", "Sunday", "Januari", "Februari", "Mac", "Mei", "Julai", "Ogos", "Oktober",
+    "Disember", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu", "Ahad",
+    # English words that are also given names
+    "Grace", "Hope", "Joy", "Faith", "Will", "Mark", "Rose", "Bill", "Summer", "Dawn", "Rich",
+    "Sunny", "Holly", "Ivy", "Lily", "Daisy", "Iris", "Pearl", "Ruby", "Crystal", "Amber", "Jade",
+    "Angel", "King", "Queen", "Prince", "Young", "Long", "Page", "Hall", "Grant", "Frank", "Art",
+    "Victory", "Star", "Sky", "Dear", "Thank", "Thanks", "Please", "Regards", "Office", "Account",
+    # Malay words that are also given names
+    "Indah", "Jaya", "Seri", "Sri", "Cahaya", "Bintang", "Bulan", "Intan", "Mutiara", "Permata",
+    "Bunga", "Mawar", "Melati", "Kenanga", "Suria", "Putra", "Putri", "Ratna", "Murni", "Setia",
+    "Harapan", "Bahagia", "Sentosa", "Makmur", "Maju", "Baru", "Utama", "Emas", "Budi", "Bakti",
+    "Merdeka", "Raya", "Aman", "Damai", "Bayu", "Embun", "Salam", "Selamat", "Permai", "Ria",
+    # places
+    "Malaysia", "Singapore", "Kuala", "Lumpur", "Johor", "Bahru", "Bharu", "Petaling", "Shah",
+    "Alam", "Kota", "Kinabalu", "Kuching", "Ipoh", "Kajang", "Cheras", "Klang", "Subang",
+    "Puchong", "Seremban", "Melaka", "Malacca", "Penang", "Pinang", "Pulau", "Bandar", "Taman",
+    "Jalan", "Kampung", "Bukit", "Sungai", "Batu", "Tanjung", "Teluk", "Putrajaya", "Cyberjaya",
+    "Ampang", "Gombak", "Kepong", "Rawang", "Nilai", "Muar", "Kedah", "Kelantan", "Pahang",
+    "Perak", "Perlis", "Sabah", "Sarawak", "Selangor", "Terengganu", "Labuan", "Negeri",
+    "Sembilan", "Kuantan", "Bayan", "Lepas", "Ayer", "Keroh",
+]}

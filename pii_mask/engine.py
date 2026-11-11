@@ -148,7 +148,8 @@ class Detector:
 
 # ---------------------------------------------------------------- resolution
 
-from .lists import MY_STATES, STRIP_TITLE_RE  # noqa: E402
+from .lists import (MY_STATES, STRIP_TITLE_RE, HONORIFICS, CHINESE_SURNAMES, NAME_CONNECTORS,  # noqa: E402
+                    NAME_PREFIXES, PART_STOP)
 
 _STATE_TAIL = re.compile(r"^[\s,]*(?:" + "|".join(re.escape(s) for s in
                          sorted(MY_STATES, key=len, reverse=True)) + r")\b\.?", re.IGNORECASE)
@@ -231,8 +232,31 @@ def add_keep_terms(terms):
     KEEP_TERMS.update(t.casefold().strip() for t in terms or [] if t.strip())
 
 
+# A span that starts with an honorific or holds bin/binti/a/l/a/p is a person, even when a model
+# calls it an organisation ("Puan Siti binti Demo, IC ..."), unless it also carries a company word.
+_PERSON_HEAD = re.compile(r"^(?:" + "|".join(re.escape(h) for h in sorted(HONORIFICS, key=len, reverse=True))
+                          + r")(?:\s+|(?<=\.))[A-Z]", re.IGNORECASE)
+_PERSON_LINK = re.compile(r"(?<![\w/])(?:bin|binti|bte|binte|a/l|a/p|s/o|d/o)(?![\w/])", re.IGNORECASE)
+_ORG_WORD = re.compile(r"(?<!\w)(?:Sdn|Bhd|Berhad|PLT|Enterprise|Trading|Holdings|Resources|Ventures"
+                       r"|Industries|Corporation|Corp|Ltd|Limited|Inc|LLP|Co|Services|Solutions|Technologies"
+                       r"|Engineering|Construction|Logistics|Consultancy|Agency|Clinic|Klinik|Restoran|Kedai"
+                       r"|Pharmacy|Farmasi|Syarikat|Pusat|Persatuan|Hospital|Sekolah|School|Bank)(?!\w)",
+                       re.IGNORECASE)
+
+
+def _person_not_org(value):
+    return bool(_PERSON_HEAD.match(value) or _PERSON_LINK.search(value)) and not _ORG_WORD.search(value)
+
+
 def resolve(text, spans):
     spans = [_trim(text, s) for s in spans]
+    spans = [Span(s.start, s.end, "NAME", s.score, s.src)
+             if s.type == "ORG" and _person_not_org(text[s.start:s.end]) else s for s in spans]
+    # ORG outranks NAME below, so a model's ORG fragment ("Demo" out of "Puan Siti binti Demo")
+    # would split the person in two. Honorific and bin/binti names win over such fragments.
+    persons = [s for s in spans if s.type == "NAME" and _person_not_org(text[s.start:s.end])]
+    spans = [s for s in spans if not (s.type == "ORG" and not _ORG_WORD.search(text[s.start:s.end])
+                                      and any(s.start < p.end and p.start < s.end for p in persons))]
     spans = [s for s in spans if text[s.start:s.end].casefold() not in KEEP_TERMS]
     spans = [s for s in spans if s.end - s.start >= 2]
     spans = _merge_same_type(spans)
@@ -332,6 +356,16 @@ class TokenMap:
         v = e["variants"].index(surface)
         return f"[{typ}_{e['n']}]" if v == 0 else f"[{typ}_{e['n']}.{v + 1}]"
 
+    def link(self, typ, parent, surface):
+        """Token for `surface` as a variant of `parent`'s entry: a lone "Siti" next to "Siti binti
+        Demo" becomes [NAME_1.2]. The variant keeps the exact surface, so unmask stays exact."""
+        self.token(typ, parent)
+        e = self.entries[(typ, norm_key(typ, parent))]
+        if surface not in e["variants"]:
+            e["variants"].append(surface)
+        v = e["variants"].index(surface)
+        return f"[{typ}_{e['n']}]" if v == 0 else f"[{typ}_{e['n']}.{v + 1}]"
+
     def reverse(self):
         rev = {}
         for (t, _), e in self.entries.items():
@@ -360,13 +394,9 @@ def unmask_text(text, rev):
 
 # ---------------------------------------------------------------- batch masking
 
-_NAME_STOP = {"bin", "binti", "bte", "anak", "mohd", "muhammad", "mohamad", "mohammad", "nur", "nurul",
-              "siti", "abdul", "abd", "haji", "hajah", "encik", "puan", "datuk", "dato", "datin", "tuan",
-              "syed", "sharifah", "kumar", "devi", "binte", "demo", "sample", "contoh"}
-
-
-def _known_patterns(found):
-    """found: dict value -> type. Builds one regex per case mode for propagation."""
+def _known_patterns(found, parts=None):
+    """found: dict value -> type. parts: name parts, matched case-sensitively as written, in Title
+    case and in capitals, never in lower case. Builds one regex per case mode for propagation."""
     multi, single = {}, {}
     for v, t in found.items():
         v = v.strip()
@@ -386,6 +416,13 @@ def _known_patterns(found):
             variants[k.upper()] = t
         alt = "|".join(re.escape(v) for v in sorted(variants, key=len, reverse=True))
         pats.append((re.compile(r"(?<![\w@])(?:" + alt + r")(?![\w@])"), variants))
+    if parts:
+        variants = {}
+        for p in parts:
+            for v in (p, p[0] + p[1:].lower(), p.upper()):
+                variants.setdefault(v, "NAME")
+        alt = "|".join(re.escape(v) for v in sorted(variants, key=len, reverse=True))
+        pats.append((re.compile(r"(?<![\w@\[])(?:" + alt + r")(?![\w@\]])"), variants))
     return pats
 
 
@@ -408,9 +445,9 @@ def mask_units(units, detector, tmap, forced=None, llm=None, stats=None, regex_o
     for i, u in enumerate(units):
         for s in spans[i]:
             found.setdefault(u[s.start:s.end], s.type)
-    _add_name_parts(found)
     for _round in range(2 if llm else 1):
-        pats = _known_patterns(found)
+        links = name_part_links(found)
+        pats = _known_patterns(found, links)
         for i, u in enumerate(units):
             if i in forced or not u:
                 continue
@@ -434,23 +471,65 @@ def mask_units(units, detector, tmap, forced=None, llm=None, stats=None, regex_o
                 stats["llm_extra"] = stats.get("llm_extra", 0) + new
             if not new:
                 break
+    links = name_part_links(found)
     for i, u in enumerate(units):
         for s in spans[i]:
-            s.token = tmap.token(s.type, u[s.start:s.end])
+            value = u[s.start:s.end]
+            parent = links.get(value) if s.type == "NAME" else None
+            s.token = tmap.link("NAME", parent, value) if parent else tmap.token(s.type, value)
             if stats is not None:
                 stats.setdefault("mentions", {}).setdefault(s.type, 0)
                 stats["mentions"][s.type] += 1
     return spans
 
 
-def _add_name_parts(found):
-    for v, t in list(found.items()):
+_SURNAMES = {c.casefold() for c in CHINESE_SURNAMES}
+_TITLE_WORDS = {h.casefold().rstrip(".'") for h in HONORIFICS if " " not in h}
+
+
+def name_parts(name):
+    """Given-name words of a detected name that are distinctive enough to mask on their own.
+    "Puan Siti binti Demo" -> ["Siti"]; "Siti Hajar binti Demo" -> ["Hajar"]; "Tan Wei Ming" ->
+    ["Wei", "Ming"]. Drops honorifics, the connector and everything after it, the first Chinese
+    surname, bare prefixes (Mohd, Nur, Siti) when another given word exists, and stoplisted words."""
+    words = []
+    for w in re.split(r"[\s,]+", STRIP_TITLE_RE.sub("", name.strip())):
+        w = w.strip(".'()")
+        if w.casefold() in NAME_CONNECTORS or w.casefold() + "." in NAME_CONNECTORS:
+            break
+        if w and w != "@" and w.casefold() not in _TITLE_WORDS:
+            words.append(w)
+    for i, w in enumerate(words):
+        if w.casefold() in _SURNAMES:
+            del words[i]
+            break
+    words = [w for w in words if len(w) >= 3 and w.isalpha() and w[0].isupper()
+             and w.casefold() not in PART_STOP]
+    given = [w for w in words if w.casefold() not in NAME_PREFIXES]
+    return given or words
+
+
+def name_part_links(found):
+    """{part: full name} for every name part that belongs to exactly one detected person. A part
+    shared by two different names is still masked, but with its own token, so nothing is wrongly
+    linked. Parts that are themselves a detected non-name value are left alone."""
+    owners = {}
+    for v, t in found.items():
         if t != "NAME":
             continue
-        for w in re.split(r"[\s,]+", v):
-            w = w.strip(".'")
-            if len(w) >= 4 and w.isalpha() and w[0].isupper() and w.casefold() not in _NAME_STOP:
-                found.setdefault(w, "NAME")
+        for p in name_parts(v):
+            if p != v.strip():
+                o = owners.setdefault(p.casefold(), {"names": {}, "forms": set()})
+                o["names"][norm_key("NAME", v)] = v
+                o["forms"].add(p)
+    links = {}
+    for o in owners.values():
+        full = next(iter(o["names"].values())) if len(o["names"]) == 1 else None
+        for p in sorted(o["forms"]):
+            for v in (p, p[0] + p[1:].lower(), p.upper()):
+                if found.get(v, "NAME") == "NAME":
+                    links.setdefault(v, full)
+    return links
 
 
 def _union(text, base, extra):

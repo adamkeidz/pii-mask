@@ -138,8 +138,10 @@ def address():
 GT = []
 
 
-def gt(file, typ, value, parts=None, where=None):
-    GT.append({"file": file, "type": typ, "value": value, "parts": parts or [], "where": where})
+def gt(file, typ, value, parts=None, where=None, **checks):
+    """checks: typed=True (must get this token type), linked_to=<full name> (must share its token
+    number), keep=[words] (common words of the name that must stay visible elsewhere)."""
+    GT.append({"file": file, "type": typ, "value": value, "parts": parts or [], "where": where, **checks})
 
 
 def make_customers():
@@ -337,6 +339,31 @@ def pdf_file():
         fh.write(out.encode("latin-1"))
 
 
+def name_part_files():
+    """Fixed text, no random draws, so the seeded files above do not change. Covers a lone given
+    name after the full name, an honorific name alone on a line (once tagged ORG), and a name part
+    that is also a common word."""
+    note6 = """Call log, 6 Nov 2026
+
+Puan Siti binti Demo (IC 900101-14-5678) called from 012-000 1234 about her refund.
+Please reply to siti.demo@example.com once Siti confirms the amount.
+
+April Lim Mei Ling asked to move her payment to April 2027.
+"""
+    gt("note6.txt", "NAME", "Siti binti Demo", typed=True)
+    gt("note6.txt", "IC", "900101-14-5678"); gt("note6.txt", "PHONE", "012-000 1234")
+    gt("note6.txt", "EMAIL", "siti.demo@example.com")
+    gt("note6.txt", "NAME", "Siti", linked_to="Siti binti Demo")
+    gt("note6.txt", "NAME", "April Lim Mei Ling", keep=["April"])
+    note7 = """Refund callbacks
+Puan Siti binti Demo, IC 900101-14-5678
+"""
+    gt("note7.txt", "NAME", "Siti binti Demo", typed=True); gt("note7.txt", "IC", "900101-14-5678")
+    for name, body in [("note6.txt", note6), ("note7.txt", note7)]:
+        with open(os.path.join(OUT, name), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(body)
+
+
 def holdout():
     """Different phrasing and harder cases, written before tuning; used only to measure."""
     global GT
@@ -391,7 +418,7 @@ Regards, {P[12]['name']}
 
 
 CONTROLS = ["INV-2026-0042", "MyInvois", "RM 4,200.00", "INV-2026-0117", "LHDN", "31 Dec", "RM 980.50",
-            "Kuala Lumpur", "CUST-1001", "Baki: RM 1,234.56", "Surat Pengesahan Pelanggan"]
+            "Kuala Lumpur", "CUST-1001", "Baki: RM 1,234.56", "Surat Pengesahan Pelanggan", "April 2027"]
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
@@ -399,6 +426,7 @@ if __name__ == "__main__":
     text_files()
     docx_file()
     pdf_file()
+    name_part_files()
     with open(os.path.join(HERE, "ground_truth.json"), "w", encoding="utf-8") as fh:
         json.dump({"entities": GT, "controls": CONTROLS}, fh, indent=1, ensure_ascii=False)
     print(f"wrote {len(GT)} labelled values to {OUT}")

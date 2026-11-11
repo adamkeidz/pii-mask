@@ -48,8 +48,23 @@ def leaked(e, text):
     if present(v, text):
         return [v]
     if t == "NAME":
-        return [w for w in v.split() if len(w) >= 4 and w.lower() not in STOP and present(w, text, ci=False)]
+        return [w for w in v.split() if len(w) >= 4 and w.lower() not in STOP and w not in e.get("keep", [])
+                and present(w, text, ci=False)]
     return []
+
+
+def token_checks(e, tm):
+    """Problems with the token a value got: wrong type, or a name part not linked to its name."""
+    rev = tm.reverse()
+    bases = {k.split(".")[0].rstrip("]") for k, s in rev.items() if s == e["value"]}
+    out = []
+    if e.get("typed") and not any(b.startswith("[" + e["type"] + "_") for b in bases):
+        out.append(f"typed {e['type']}: got {sorted(bases) or 'no token'}")
+    if e.get("linked_to"):
+        full = {k.split(".")[0].rstrip("]") for k, s in rev.items() if s == e["linked_to"]}
+        if not bases & full:
+            out.append(f"not linked to {e['linked_to']!r}: {sorted(bases)} vs {sorted(full)}")
+    return out
 
 
 def compare(src, masked, restored):
@@ -97,6 +112,7 @@ def main():
         files = [f for f in files if f in a.files.split(",")]
     tot, miss_by_type, misses, rt_ok, speed = {}, {}, [], {}, []
     over = {}
+    tok_n, tok_bad = 0, []
     for f in files:
         src = os.path.join(DATA, a.set, f)
         ext = os.path.splitext(f)[1].lower()
@@ -128,6 +144,9 @@ def main():
             if lk:
                 miss_by_type[e["type"]] = miss_by_type.get(e["type"], 0) + 1
                 misses.append((f, e["type"], e["value"], lk, e.get("where")))
+            if e.get("typed") or e.get("linked_to"):
+                tok_n += 1
+                tok_bad += [(f, e["value"], p) for p in token_checks(e, tm)]
         for m in TOKEN_RE.finditer(text):
             over.setdefault(m.group(1), set()).add(m.group(0).split(".")[0].rstrip("]"))
         if a.llm_check:
@@ -146,6 +165,11 @@ def main():
     ctrl = [c for c in gt["controls"] if c in src_text]
     kept = [c for c in ctrl if c in ctrl_text]
     print(f"\nCONTROL strings kept (not over-masked): {len(kept)}/{len(ctrl)}  lost: {sorted(set(ctrl) - set(kept))}")
+    if tok_n:
+        bad = {(f, v) for f, v, _ in tok_bad}
+        print(f"\nTOKEN checks (type, name part linked): {tok_n - len(bad)}/{tok_n}")
+        for x in tok_bad:
+            print("  ", x)
     print("\nSPEED")
     for f, s in speed:
         print(f"  {f:16s} {s}")
