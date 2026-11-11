@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pii-mask"
+version = "0.1.0"
+description = "Local, reversible masking of Malaysian personal data (IC, TIN, SSM, phones, names, addresses) before text goes to cloud AI tools"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Ahmad Adam" }]
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "torch==2.11.0",
+  "presidio-analyzer==2.2.366",
+  "presidio-anonymizer==2.2.366",
+  "gliner==0.2.30",
+  "transformers==5.22.2",
+  "huggingface_hub==2.4.0",
+  "tokenizers==0.23.3",
+  "sentencepiece==0.2.3",
+  "protobuf==7.36.2",
+  "spacy==3.8.18",
+  "numpy==2.4.6",
+  "openpyxl==3.1.5",
+  "python-docx==1.2.0",
+  "pypdf==7.0.1",
+]
+
+[project.scripts]
+pii-mask = "pii_mask.cli:main"
+
+[tool.setuptools]
+packages = ["pii_mask"]

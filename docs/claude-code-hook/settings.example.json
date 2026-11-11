@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(~/ClientData/raw/**)",
+      "Read(~/ClientData/keys/**)",
+      "Read(~/ClientData/restored/**)",
+      "Edit(~/ClientData/raw/**)",
+      "Edit(~/ClientData/keys/**)",
+      "Edit(~/ClientData/restored/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Glob|Grep|Bash|PowerShell|Edit|MultiEdit|Write|NotebookEdit|NotebookRead|LSP|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "& 'C:/Users/<you>/.claude/hooks/client-data-guard.ps1'",
+            "shell": "powershell",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

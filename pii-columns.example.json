@@ -1,0 +1,11 @@
+{
+  "auto": true,
+  "columns": {
+    "Customer": "NAME",
+    "Contact No": "PHONE",
+    "Ship To": "ADDRESS",
+    "Remarks": "SCAN",
+    "Amount": "KEEP"
+  },
+  "keep_terms": ["Demo Product Line", "Head Office"]
+}

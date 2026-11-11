@@ -1,0 +1,7 @@
+.venv/
+hf-cache/
+__pycache__/
+*.pyc
+tests/data/
+*.tmp
+.claude/
